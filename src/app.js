@@ -203,10 +203,12 @@ app.post('/test-send-message', async (req, res) => {
       });
     }
     
-    if (!whatsappHandler.client) {
+    // Verificar estado de WhatsApp usando getStatus()
+    const status = whatsappHandler.getStatus();
+    if (!status.connected || !whatsappHandler.sock) {
       return res.status(500).json({
         success: false,
-        error: 'Cliente de WhatsApp no está disponible'
+        error: 'Cliente de WhatsApp no está disponible. Verifica que WhatsApp esté conectado escaneando el QR.'
       });
     }
     
@@ -221,7 +223,7 @@ app.post('/test-send-message', async (req, res) => {
   } catch (error) {
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message || 'Error al enviar mensaje'
     });
   }
 });
