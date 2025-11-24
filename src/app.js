@@ -28,13 +28,11 @@ app.post('/webchat/message', async (req, res) => {
 
     const nlu = require('./nlu');
     const orderHandler = require('./orderHandler');
-    const sessionManager = require('./sessionManager');
 
     const webSessionId = sessionId || `web_${req.ip}`;
     const phoneNumber = webSessionId; // usamos sessionId como identificador de canal web
 
-    // Asegurar sesión
-    await sessionManager.getSession(phoneNumber);
+    // Asegurar sesión (una sola llamada)
     const session = await sessionManager.getSession(phoneNumber);
     const conversationHistory = await sessionManager.getConversationHistory(phoneNumber, 15);
 

@@ -552,10 +552,13 @@ class WhatsAppHandler {
             }
             this.processedMessageIds.add(messageId);
 
-            // Limpiar IDs antiguos (mantener solo los últimos 1000)
+            // Limpiar IDs antiguos periódicamente para evitar memory leaks
+            // Mantener solo los últimos 500 IDs procesados
             if (this.processedMessageIds.size > 1000) {
               const idsArray = Array.from(this.processedMessageIds);
+              // Mantener solo los últimos 500 para balance entre memoria y detección de duplicados
               this.processedMessageIds = new Set(idsArray.slice(-500));
+              logger.debug(`Limpiados IDs antiguos, quedan ${this.processedMessageIds.size} IDs en memoria`);
             }
 
             logger.info(`📨 Mensaje recibido de ${phoneNumber} (JID: ${remoteJid})`);
