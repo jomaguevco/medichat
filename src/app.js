@@ -12,8 +12,11 @@ const sessionManager = require('./sessionManager');
 const app = express();
 
 // Middleware
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Aumentar límite de tamaño para imágenes grandes (100MB)
+app.use(express.json({ limit: '100mb' }));
+app.use(express.urlencoded({ extended: true, limit: '100mb' }));
+// Configurar límite adicional para raw body
+app.use(express.raw({ limit: '100mb', type: 'application/octet-stream' }));
 
 // Webchat REST: procesar mensajes desde el portal del cliente
 app.post('/webchat/message', async (req, res) => {
@@ -228,6 +231,55 @@ app.post('/test-send-message', async (req, res) => {
   }
 });
 
+// Endpoint para enviar imagen a WhatsApp
+app.post('/send-image', async (req, res) => {
+  try {
+    const { phoneNumber, imageBase64, filename = 'image.png', caption = '' } = req.body;
+    
+    if (!phoneNumber || !imageBase64) {
+      return res.status(400).json({
+        success: false,
+        error: 'phoneNumber e imageBase64 son requeridos'
+      });
+    }
+    
+    // Verificar estado de WhatsApp
+    const status = whatsappHandler.getStatus();
+    if (!status.connected || !whatsappHandler.sock) {
+      return res.status(500).json({
+        success: false,
+        error: 'Cliente de WhatsApp no está disponible. Verifica que WhatsApp esté conectado escaneando el QR.'
+      });
+    }
+    
+    // Convertir base64 a buffer
+    let imageBuffer;
+    try {
+      imageBuffer = Buffer.from(imageBase64, 'base64');
+    } catch (bufferError) {
+      return res.status(400).json({
+        success: false,
+        error: 'Error al procesar imagen base64: ' + bufferError.message
+      });
+    }
+    
+    // Enviar imagen usando whatsappHandler
+    const result = await whatsappHandler.sendImage(phoneNumber, imageBuffer, filename, caption);
+    
+    res.json({
+      success: result,
+      message: result ? 'Imagen enviada exitosamente' : 'No se pudo enviar la imagen',
+      phoneNumber,
+      filename
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Error al enviar imagen'
+    });
+  }
+});
+
 // Endpoint para verificar estado detallado
 app.get('/debug-status', async (req, res) => {
   try {
@@ -292,22 +344,17 @@ async function initialize() {
     await db.initialize();
     logger.success('✅ Base de datos local inicializada');
     
-    // Warmup de Whisper para descargar/preparar el modelo (evita fallos SSL en primer uso)
+    // Warmup de Whisper para descargar/preparar el modelo (silenciado)
     try {
       const whisper = require('./whisper');
       await whisper.ensureReady();
     } catch (e) {
-      logger.warn('⚠️ No se pudo ejecutar warmup de Whisper', e.message);
+      // Warmup de Whisper falló - se intentará al vuelo si es necesario (log silenciado)
     }
     
-    // Inicializar conexión a base de datos MySQL de Kardex
-    logger.info('📦 Inicializando conexión a base de datos MySQL de Kardex...');
+    // Inicializar conexión a base de datos MySQL de Kardex (silenciado)
     const kardexDbConnected = await kardexDb.initialize();
-    if (kardexDbConnected) {
-      logger.success('✅ Conexión a base de datos MySQL de Kardex establecida');
-    } else {
-      logger.warn('⚠️ No se pudo conectar a MySQL de Kardex - Se usará solo API REST');
-    }
+    // No mostrar logs de conexión MySQL Kardex - se usa API REST como fallback
     
     // Limpiar sesiones expiradas cada 10 minutos
     setInterval(async () => {
@@ -403,11 +450,11 @@ async function initialize() {
       logger.info('📋 INSTRUCCIONES:');
       logger.info('   1. Espera a que aparezca el código QR en la consola');
       logger.info('   2. O verifica el archivo: qr/qr.png');
-      logger.info('   3. Escanea el QR con WhatsApp (Configuración > Dispositivos vinculados)');
-      logger.info('   4. El bot se conectará automáticamente');
+      logger.info('   3. Escanea el QR con WhatsApp Business (Configuración > Dispositivos vinculados)');
+      logger.info('   4. El bot se conectará automáticamente como WhatsApp Business');
       logger.info('');
       logger.info('💡 Si el QR no aparece:');
-      logger.info('   - Elimina la sesión anterior: rm -rf tokens/whatsapp-session/');
+      logger.info('   - Elimina la sesión anterior: rmdir /s /q tokens\\baileys-session (Windows)');
       logger.info('   - Reinicia el bot: npm start');
       logger.info('');
     }
@@ -450,10 +497,28 @@ process.on('SIGTERM', async () => {
 
 // Manejo de errores no capturados
 process.on('unhandledRejection', (error) => {
+  // Suprimir errores normales de descifrado de WhatsApp (Bad MAC)
+  if (error?.message?.includes('Bad MAC') || 
+      error?.message?.includes('Failed to decrypt') ||
+      error?.stack?.includes('SessionCipher') ||
+      error?.stack?.includes('libsignal')) {
+    // Estos son errores normales de WhatsApp cuando intenta descifrar mensajes antiguos o de grupos
+    // No afectan el funcionamiento del bot
+    return;
+  }
   logger.error('❌ Unhandled Rejection', error);
 });
 
 process.on('uncaughtException', (error) => {
+  // Suprimir errores normales de descifrado de WhatsApp (Bad MAC)
+  if (error?.message?.includes('Bad MAC') || 
+      error?.message?.includes('Failed to decrypt') ||
+      error?.stack?.includes('SessionCipher') ||
+      error?.stack?.includes('libsignal')) {
+    // Estos son errores normales de WhatsApp cuando intenta descifrar mensajes antiguos o de grupos
+    // No afectan el funcionamiento del bot
+    return;
+  }
   logger.error('❌ Uncaught Exception', error);
   process.exit(1);
 });

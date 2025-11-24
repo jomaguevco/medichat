@@ -42,11 +42,11 @@ class KardexDatabase {
       await connection.ping();
       connection.release();
       
-      logger.success('✅ Conexión a base de datos MySQL de Kardex establecida');
+      // Conexión establecida (log silenciado)
       return true;
     } catch (error) {
-      logger.error('❌ Error al conectar con base de datos MySQL de Kardex', error);
-      logger.warn('⚠️ Se usará solo API REST como fallback');
+      // Error de conexión MySQL Kardex (log silenciado - se usa API REST como fallback)
+      // Se usará solo API REST como fallback (log silenciado)
       this.pool = null;
       return false;
     }

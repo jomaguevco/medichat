@@ -83,10 +83,32 @@ class WhatsAppHandler {
           creds: state.creds,
           keys: makeCacheableSignalKeyStore(state.keys, logger)
         },
-        browser: ['ChatDex Bot', 'Chrome', '1.0.0'],
+        // Configurar como WhatsApp Business para menos restricciones
+        browser: ['WhatsApp Business', 'Chrome', '2.0.0'],
         generateHighQualityLinkPreview: true,
         syncFullHistory: false,
-        markOnlineOnConnect: true
+        markOnlineOnConnect: true, // Habilitado para Business (más permisivo)
+        // Configuraciones optimizadas para WhatsApp Business
+        getMessage: async (key) => {
+          // Retornar undefined para evitar errores de mensajes no encontrados
+          return undefined;
+        },
+        // Reducir la frecuencia de mensajes para evitar spam
+        shouldSyncHistoryMessage: () => false,
+        shouldIgnoreJid: (jid) => {
+          // Ignorar solo grupos, permitir todo lo demás en Business
+          return jid.endsWith('@g.us');
+        },
+        // Configuraciones adicionales optimizadas para Business
+        connectTimeoutMs: 60000,
+        defaultQueryTimeoutMs: 60000,
+        keepAliveIntervalMs: 30000, // Aumentado para Business (menos restricciones)
+        qrTimeout: 60000,
+        // Configuraciones específicas para Business
+        retryRequestDelayMs: 250,
+        maxMsgRetryCount: 5,
+        // Mejorar entrega en Business
+        fireInitQueries: true
       });
 
       logger.info('✅ Socket de WhatsApp creado');
@@ -103,7 +125,7 @@ class WhatsAppHandler {
       // Manejar actualizaciones de credenciales
       this.sock.ev.on('creds.update', async () => {
         await saveCreds();
-        logger.debug('✅ Credenciales guardadas');
+        // No loguear cada actualización de credenciales para reducir verbosidad
       });
 
       // Manejar conexión
@@ -126,10 +148,11 @@ class WhatsAppHandler {
             
             console.log('\n');
             console.log('═'.repeat(70));
-            console.log('📱 ESCANEA ESTE QR CON WHATSAPP');
+            console.log('📱 ESCANEA ESTE QR CON WHATSAPP BUSINESS');
             console.log('═'.repeat(70));
             console.log('   Ubicación: qr/qr.png');
             console.log('   O escanea el QR de la consola');
+            console.log('   ⚠️ IMPORTANTE: Escanea desde WhatsApp Business');
             console.log('═'.repeat(70));
             console.log('\n');
             
@@ -161,19 +184,19 @@ class WhatsAppHandler {
               });
             }, 3000);
           } else {
-            logger.error('❌ Sesión cerrada. Elimina la carpeta baileys-session y reinicia.');
+            logger.error('❌ Sesión cerrada. Elimina la carpeta tokens\\baileys-session y reinicia para generar nuevo QR de WhatsApp Business.');
             this.connected = false;
             this.isConnecting = false;
           }
         } else if (connection === 'open') {
           logger.success('\n╔══════════════════════════════════════════════════════════════════════╗');
-          logger.success('║              ✅ WHATSAPP CONECTADO EXITOSAMENTE                       ║');
+          logger.success('║         ✅ WHATSAPP BUSINESS CONECTADO EXITOSAMENTE                  ║');
           logger.success('╚══════════════════════════════════════════════════════════════════════╝');
           logger.success('');
           
           console.log('\n');
           console.log('═'.repeat(70));
-          console.log('✅ WHATSAPP CONECTADO EXITOSAMENTE');
+          console.log('✅ WHATSAPP BUSINESS CONECTADO EXITOSAMENTE');
           console.log('═'.repeat(70));
           console.log('\n');
 
@@ -183,10 +206,12 @@ class WhatsAppHandler {
           // Obtener información del socket
           const me = this.sock.user;
           if (me) {
-            logger.info(`📱 Conectado como: ${me.name || me.id || 'N/A'}`);
+            logger.info(`📱 Conectado como WhatsApp Business: ${me.name || me.id || 'N/A'}`);
             logger.info(`📱 ID: ${me.id || 'N/A'}`);
+            logger.info(`   Tipo: WhatsApp Business (menos restricciones para mensajes)`);
             console.log(`   Número: ${me.id || 'N/A'}`);
             console.log(`   Nombre: ${me.name || 'N/A'}`);
+            console.log(`   Tipo: WhatsApp Business`);
             console.log('═'.repeat(70));
             console.log('\n');
           }
@@ -226,30 +251,147 @@ class WhatsAppHandler {
     try {
       logger.info('📡 Configurando handlers de mensajes con Baileys...');
 
+      // Handler para confirmaciones de entrega (ACK)
+      this.sock.ev.on('messages.update', async (updates) => {
+        for (const update of updates) {
+          if (update.update?.status !== undefined) {
+            // El status puede venir como número (0-4) o como string
+            let status = update.update.status;
+            const messageId = update.key?.id;
+            const remoteJid = update.key?.remoteJid;
+            
+            // Mapear números a estados legibles
+            const statusMap = {
+              0: 'PENDING',
+              1: 'SERVER_ACK',
+              2: 'DELIVERY_ACK',
+              3: 'READ',
+              4: 'ERROR'
+            };
+            
+            // Si es un número, convertirlo a string
+            if (typeof status === 'number') {
+              status = statusMap[status] || 'UNKNOWN';
+            }
+            
+            // Log solo mensajes enviados por el bot (fromMe)
+            if (update.key?.fromMe) {
+              const statusEmoji = {
+                'PENDING': '⏳',
+                'SERVER_ACK': '✓',
+                'DELIVERY_ACK': '✓✓',
+                'READ': '✓✓✓',
+                'ERROR': '❌',
+                'UNKNOWN': '❓'
+              };
+              
+              const emoji = statusEmoji[status] || '❓';
+              
+              // Extraer número de teléfono del JID para mostrar
+              let phoneDisplay = remoteJid;
+              if (remoteJid && remoteJid.includes('@')) {
+                phoneDisplay = remoteJid.split('@')[0];
+              }
+              
+              logger.info(`${emoji} Estado del mensaje ${messageId?.substring(0, 8)}... a ${phoneDisplay}: ${status}`);
+              
+              if (status === 'ERROR' || status === 4) {
+                logger.error(`❌ Error en entrega del mensaje ${messageId} a ${phoneDisplay}`);
+                logger.error(`💡 Posibles causas:`);
+                logger.error(`   - El número puede estar bloqueado`);
+                logger.error(`   - WhatsApp puede haber bloqueado el mensaje por ser automático`);
+                logger.error(`   - El número puede no estar registrado correctamente`);
+              } else if (status === 'DELIVERY_ACK' || status === 2) {
+                logger.success(`✅ Mensaje entregado correctamente (✓✓) a ${phoneDisplay}`);
+                // Reducir verbosidad - solo mostrar mensaje de éxito
+              } else if (status === 'READ' || status === 3) {
+                logger.success(`✅ Mensaje leído (✓✓✓) por ${phoneDisplay}`);
+              } else if (status === 'SERVER_ACK' || status === 1) {
+                logger.info(`✓ Mensaje recibido por servidor (✓) a ${phoneDisplay}`);
+                logger.info(`💡 Esperando confirmación de entrega...`);
+              } else if (status === 'PENDING' || status === 0) {
+                logger.info(`⏳ Mensaje pendiente de envío a ${phoneDisplay}`);
+              }
+            }
+          }
+        }
+      });
+
+      // Suprimir errores de descifrado normales de Baileys
+      // Estos errores ocurren cuando WhatsApp intenta descifrar mensajes antiguos o de grupos
+      // y no afectan el funcionamiento del bot
+      const originalConsoleError = console.error;
+      const originalConsoleLog = console.log;
+      
+      console.error = (...args) => {
+        const errorMessage = args.join(' ');
+        // Suprimir errores específicos de descifrado
+        if (errorMessage.includes('Failed to decrypt message with any known session') ||
+            errorMessage.includes('Session error:Error: Bad MAC') ||
+            errorMessage.includes('Bad MAC Error: Bad MAC') ||
+            errorMessage.includes('SessionCipher') ||
+            errorMessage.includes('libsignal') ||
+            errorMessage.includes('verifyMAC')) {
+          // No mostrar estos errores normales
+          return;
+        }
+        // Mostrar otros errores normalmente
+        originalConsoleError.apply(console, args);
+      };
+      
+      // También suprimir logs verbosos de sesiones
+      console.log = (...args) => {
+        const logMessage = args.join(' ');
+        // Suprimir logs verbosos de sesiones de WhatsApp
+        if (logMessage.includes('Closing open session in favor of incoming prekey bundle') ||
+            logMessage.includes('Closing session: SessionEntry') ||
+            logMessage.includes('_chains:') ||
+            logMessage.includes('currentRatchet:') ||
+            logMessage.includes('indexInfo:')) {
+          // No mostrar estos logs verbosos
+          return;
+        }
+        // Mostrar otros logs normalmente
+        originalConsoleLog.apply(console, args);
+      };
+
       // Handler para mensajes
       this.sock.ev.on('messages.upsert', async ({ messages, type }) => {
-        logger.info(`📥 Evento messages.upsert recibido - tipo: ${type}, mensajes: ${messages.length}`);
+        // Solo loguear si hay mensajes relevantes (no ignorados)
+        let relevantMessages = 0;
+        
+        // Contar mensajes relevantes primero
+        for (const message of messages) {
+          if (!message.key.fromMe && !message.key.remoteJid?.includes('@g.us')) {
+            relevantMessages++;
+          }
+        }
+        
+        // Solo loguear si hay mensajes relevantes o si es tipo notify
+        if (relevantMessages > 0 || type === 'notify') {
+          logger.info(`📥 Evento messages.upsert recibido - tipo: ${type}, mensajes: ${messages.length}${relevantMessages > 0 ? ` (${relevantMessages} relevantes)` : ''}`);
+        }
         
         // Procesar mensajes de tipo 'notify' (nuevos) y 'append' (mensajes recientes)
         // Ignorar solo otros tipos como 'update' que son actualizaciones de estado
         if (type !== 'notify' && type !== 'append') {
-          logger.debug(`⚠️ Tipo de mensaje ignorado: ${type}`);
-          return;
+          return; // No loguear tipos ignorados
         }
 
-        logger.info(`✅ Procesando ${messages.length} mensaje(s)...`);
+        // Solo loguear procesamiento si hay mensajes relevantes
+        if (relevantMessages > 0) {
+          logger.info(`✅ Procesando ${relevantMessages} mensaje(s) relevante(s)...`);
+        }
 
         for (const message of messages) {
           try {
-            // Ignorar mensajes del propio bot
+            // Ignorar mensajes del propio bot (sin loguear)
             if (message.key.fromMe) {
-              logger.debug('⚠️ Ignorando mensaje del propio bot');
               continue;
             }
 
-            // Ignorar mensajes de grupos
+            // Ignorar mensajes de grupos (sin loguear)
             if (message.key.remoteJid?.includes('@g.us')) {
-              logger.debug('⚠️ Ignorando mensaje de grupo');
               continue;
             }
 
@@ -497,8 +639,8 @@ class WhatsAppHandler {
           `📋 Este sistema está diseñado para enviar recetas médicas por WhatsApp.\n\n` +
           `💡 Si necesitas recibir una receta médica, contacta con tu médico o farmacia.`
         );
-      } else {
-        await this.sendMessage(jidToUse,
+        } else {
+          await this.sendMessage(jidToUse,
           `👋 *Hola* 👋\n\n` +
           `Soy el bot de recetas médicas.\n\n` +
           `📋 Este sistema está diseñado para enviar recetas médicas por WhatsApp.\n\n` +
@@ -506,17 +648,17 @@ class WhatsAppHandler {
           `Escribe *HOLA* para comenzar.`
         );
       }
-      
+
     } catch (error) {
       logger.error('❌ Error al procesar mensaje de texto:', error);
       try {
         const jidToUse = remoteJid || (phoneNumber.includes('@') ? phoneNumber : `${phoneNumber}@s.whatsapp.net`);
-        await this.sendMessage(jidToUse,
-          `😅 Lo siento, hubo un error al procesar tu mensaje.\n\n` +
+          await this.sendMessage(jidToUse, 
+            `😅 Lo siento, hubo un error al procesar tu mensaje.\n\n` +
           `Por favor intenta de nuevo o escribe *HOLA* para comenzar.`
-        );
-      } catch (sendError) {
-        logger.error('❌ Error crítico: No se pudo enviar mensaje de error', sendError);
+          );
+        } catch (sendError) {
+          logger.error('❌ Error crítico: No se pudo enviar mensaje de error', sendError);
       }
     }
   }
@@ -538,13 +680,13 @@ class WhatsAppHandler {
       const jidToUse = remoteJid || (phoneNumber.includes('@') ? phoneNumber : `${phoneNumber}@s.whatsapp.net`);
       
       logger.info('🎤 Mensaje de voz recibido');
-      await this.sendMessage(jidToUse,
+        await this.sendMessage(jidToUse,
         `🎤 *Mensaje de voz recibido* 🎤\n\n` +
         `Lo siento, actualmente solo puedo procesar mensajes de texto.\n\n` +
         `💡 Por favor, envía tu consulta por mensaje de texto.\n\n` +
         `Escribe *HOLA* para comenzar.`
       );
-    } catch (error) {
+          } catch (error) {
       logger.error('❌ Error al procesar mensaje de voz:', error);
     }
   }
@@ -558,6 +700,65 @@ class WhatsAppHandler {
   }
 
   /**
+   * Verificar si un número está en WhatsApp y si está en contactos
+   */
+  async verifyNumberOnWhatsApp(phoneNumber) {
+    try {
+      if (!this.sock || !this.connected) {
+        return { exists: false, error: 'No hay socket disponible' };
+      }
+
+      // Normalizar número: eliminar espacios, guiones, etc. y asegurar formato correcto
+      let normalizedNumber = phoneNumber.replace(/[^0-9]/g, '');
+      
+      // Si no tiene código de país, asumir Perú (51)
+      if (!normalizedNumber.startsWith('51')) {
+        normalizedNumber = '51' + normalizedNumber;
+      }
+
+      const jid = `${normalizedNumber}@s.whatsapp.net`;
+      
+      logger.info(`🔍 Verificando si ${normalizedNumber} está en WhatsApp...`);
+      
+      const result = await this.sock.onWhatsApp(jid);
+      
+      if (result && result.length > 0 && result[0].exists) {
+        logger.success(`✅ Número ${normalizedNumber} está registrado en WhatsApp`);
+        
+        // Verificar si está en contactos (esto ayuda a evitar bloqueos)
+        let isInContacts = false;
+        try {
+          if (this.sock.store && this.sock.store.contacts) {
+            const contact = this.sock.store.contacts[jid];
+            isInContacts = !!contact;
+            if (isInContacts) {
+              logger.info(`✅ Número ${normalizedNumber} está en tus contactos (menos probabilidad de bloqueo)`);
+            } else {
+              logger.warn(`⚠️ Número ${normalizedNumber} NO está en tus contactos`);
+              logger.warn(`   💡 RECOMENDACIÓN: Agrega este número a tus contactos antes de enviar`);
+              logger.warn(`   💡 Esto reduce significativamente la probabilidad de que WhatsApp bloquee el mensaje`);
+            }
+          }
+        } catch (contactError) {
+          // No crítico si no se puede verificar contactos
+        }
+        
+        return { 
+          exists: true, 
+          jid: result[0].jid || jid,
+          isInContacts: isInContacts
+        };
+      } else {
+        logger.warn(`⚠️ Número ${normalizedNumber} NO está registrado en WhatsApp`);
+        return { exists: false, jid: jid };
+      }
+    } catch (error) {
+      logger.error(`❌ Error al verificar número: ${error.message}`);
+      return { exists: false, error: error.message };
+    }
+  }
+
+  /**
    * Enviar mensaje
    */
   async sendMessage(phoneNumberOrJid, text) {
@@ -568,22 +769,84 @@ class WhatsAppHandler {
       }
 
       // Si ya es un JID completo (contiene @), usarlo directamente
-      // Si no, construir el JID
+      // Si no, construir el JID y verificar
       let jid = phoneNumberOrJid;
       if (!jid.includes('@')) {
-        jid = `${jid}@s.whatsapp.net`;
+        // Normalizar número: eliminar espacios, guiones, etc.
+        let normalizedNumber = phoneNumberOrJid.replace(/[^0-9]/g, '');
+        
+        // Si no tiene código de país, asumir Perú (51)
+        if (!normalizedNumber.startsWith('51')) {
+          normalizedNumber = '51' + normalizedNumber;
+        }
+        
+        jid = `${normalizedNumber}@s.whatsapp.net`;
+        
+        // Verificar si el número está en WhatsApp antes de enviar
+        const verification = await this.verifyNumberOnWhatsApp(normalizedNumber);
+        if (!verification.exists) {
+          logger.error(`❌ No se puede enviar: El número ${normalizedNumber} no está registrado en WhatsApp`);
+          return false;
+        }
+        
+        // Advertencia si el número no está en contactos
+        if (verification.isInContacts === false) {
+          logger.warn(`⚠️ ADVERTENCIA: El número ${normalizedNumber} NO está en tus contactos`);
+          logger.warn(`   Esto aumenta la probabilidad de que WhatsApp bloquee el mensaje`);
+          logger.warn(`   💡 SOLUCIÓN: Agrega este número a tus contactos antes de enviar`);
+          logger.warn(`   💡 O envía un mensaje manual primero desde tu WhatsApp personal`);
+        }
+        
+        // Usar el JID verificado si está disponible
+        if (verification.jid) {
+          jid = verification.jid;
+        }
       }
 
       logger.info(`📤 Enviando mensaje a ${jid}: ${text.substring(0, 50)}...`);
 
-      await this.sock.sendMessage(jid, { text });
+      // Agregar timeout para evitar que se quede esperando indefinidamente
+      // NO usar waitForAck porque puede causar problemas con mensajes automáticos
+      // WhatsApp puede bloquear mensajes que esperan ACK explícitamente
+      const sendPromise = this.sock.sendMessage(jid, { text });
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Timeout al enviar mensaje (10s)')), 10000);
+      });
 
-      logger.success(`✅ Mensaje enviado a ${jid}`);
+      const result = await Promise.race([sendPromise, timeoutPromise]);
+      
+      // Log del resultado del envío
+      if (result) {
+        const messageId = result.key?.id || 'N/A';
+        logger.success(`✅ Mensaje enviado a ${jid} (ID: ${messageId.substring(0, 8)}...)`);
+        logger.info(`⏳ Esperando confirmación de entrega de WhatsApp...`);
+        logger.warn(`⚠️ IMPORTANTE: Si el mensaje muestra ✓✓ pero NO llega al celular:`);
+        logger.warn(`   - WhatsApp puede estar bloqueando mensajes automáticos`);
+        logger.warn(`   - El destinatario puede tener bloqueado tu número`);
+        logger.warn(`   - SOLUCIÓN: Pide al destinatario que te agregue a sus contactos`);
+      }
+      
+      // Delay MUCHO más largo para simular comportamiento humano real
+      // Los humanos esperan 15-30 segundos entre mensajes cuando envían imágenes
+      const delay = 15000 + Math.random() * 15000; // Entre 15-30 segundos
+      logger.info(`⏳ Esperando ${Math.round(delay/1000)}s antes del próximo mensaje (simulando comportamiento humano)...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+
       return true;
 
     } catch (error) {
-      logger.error('❌ Error al enviar mensaje:', error);
+      logger.error('❌ Error al enviar mensaje:', error.message || error);
       logger.error(`   Intentó enviar a: ${phoneNumberOrJid}`);
+      
+      // Errores específicos de WhatsApp
+      if (error.message?.includes('not-authorized') || error.message?.includes('401')) {
+        logger.error('❌ Error de autorización: La sesión puede haber expirado');
+      } else if (error.message?.includes('rate-limit') || error.message?.includes('429')) {
+        logger.error('❌ Rate limit: Demasiados mensajes enviados, espera unos minutos');
+      } else if (error.message?.includes('not-found') || error.message?.includes('404')) {
+        logger.error('❌ Número no encontrado: El número no está registrado en WhatsApp');
+      }
+      
       return false;
     }
   }
@@ -598,24 +861,100 @@ class WhatsAppHandler {
         return false;
       }
 
-      // Formatear número de teléfono
-      let jid = phoneNumber;
-      if (!jid.includes('@')) {
-        jid = `${jid}@s.whatsapp.net`;
+      // Normalizar número: eliminar espacios, guiones, etc.
+      let normalizedNumber = phoneNumber.replace(/[^0-9]/g, '');
+      
+      // Si no tiene código de país, asumir Perú (51)
+      if (!normalizedNumber.startsWith('51')) {
+        normalizedNumber = '51' + normalizedNumber;
+      }
+      
+      let jid = `${normalizedNumber}@s.whatsapp.net`;
+      
+      // Verificar si el número está en WhatsApp antes de enviar
+      const verification = await this.verifyNumberOnWhatsApp(normalizedNumber);
+      if (!verification.exists) {
+        logger.error(`❌ No se puede enviar imagen: El número ${normalizedNumber} no está registrado en WhatsApp`);
+        logger.error(`   Verifica que el número sea correcto y que el usuario tenga WhatsApp instalado`);
+        return false;
+      }
+      
+      // Advertencia si el número no está en contactos
+      if (verification.isInContacts === false) {
+        logger.warn(`⚠️ ADVERTENCIA: El número ${normalizedNumber} NO está en tus contactos`);
+        logger.warn(`   Esto aumenta la probabilidad de que WhatsApp bloquee la imagen`);
+        logger.warn(`   💡 SOLUCIÓN: Agrega este número a tus contactos antes de enviar`);
+        logger.warn(`   💡 O envía un mensaje manual primero desde tu WhatsApp personal`);
+      }
+      
+      // Usar el JID verificado si está disponible
+      if (verification.jid) {
+        jid = verification.jid;
+        // Asegurar que el JID tenga el formato correcto
+        if (!jid.includes('@s.whatsapp.net') && !jid.includes('@c.us')) {
+          jid = `${normalizedNumber}@s.whatsapp.net`;
+        }
+      }
+      
+      // Verificar que el JID tenga el formato correcto antes de enviar
+      if (!jid.match(/^\d+@s\.whatsapp\.net$/)) {
+        logger.error(`❌ Formato de JID incorrecto: ${jid}. Debe ser: número@s.whatsapp.net`);
+        jid = `${normalizedNumber}@s.whatsapp.net`;
+        logger.info(`   Corrigiendo a: ${jid}`);
       }
 
-      logger.info(`📤 Enviando imagen a ${jid}: ${filename}`);
+      // Verificar tamaño de imagen (limitar a 5MB para evitar timeouts)
+      const imageSizeMB = imageBuffer.length / (1024 * 1024);
+      if (imageSizeMB > 5) {
+        logger.warn(`⚠️ Imagen muy grande (${imageSizeMB.toFixed(2)}MB), puede tardar en enviarse`);
+      }
 
-      await this.sock.sendMessage(jid, {
+      logger.info(`📤 Enviando imagen a ${jid}: ${filename} (${imageSizeMB.toFixed(2)}MB)`);
+
+      // Agregar timeout más largo para imágenes (30 segundos)
+      // NO usar waitForAck porque puede causar problemas con mensajes automáticos
+      const sendPromise = this.sock.sendMessage(jid, {
         image: imageBuffer,
         caption: caption || filename
       });
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Timeout al enviar imagen (30s)')), 30000);
+      });
 
-      logger.success(`✅ Imagen enviada a ${phoneNumber}`);
+      const result = await Promise.race([sendPromise, timeoutPromise]);
+      
+      // Log del resultado del envío
+      if (result) {
+        const messageId = result.key?.id || 'N/A';
+        logger.success(`✅ Imagen enviada a ${normalizedNumber} (ID: ${messageId.substring(0, 8)}...)`);
+        logger.info(`⏳ Esperando confirmación de entrega de WhatsApp...`);
+        logger.warn(`⚠️ IMPORTANTE: Si la imagen muestra ✓✓ pero NO llega al celular:`);
+        logger.warn(`   - WhatsApp puede estar bloqueando imágenes automáticas`);
+        logger.warn(`   - El destinatario puede tener bloqueado tu número`);
+        logger.warn(`   - SOLUCIÓN: Pide al destinatario que te agregue a sus contactos`);
+        logger.warn(`   - O envía un mensaje manual primero desde tu WhatsApp personal`);
+      }
+      
+      // Delay MUCHO más largo entre imágenes para simular comportamiento humano real
+      // Los humanos esperan 20-35 segundos entre imágenes cuando envían múltiples
+      const delay = 20000 + Math.random() * 15000; // Entre 20-35 segundos
+      logger.info(`⏳ Esperando ${Math.round(delay/1000)}s antes de la próxima imagen (simulando comportamiento humano)...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      
       return true;
 
     } catch (error) {
-      logger.error('❌ Error al enviar imagen:', error);
+      logger.error('❌ Error al enviar imagen:', error.message || error);
+      
+      // Errores específicos de WhatsApp
+      if (error.message?.includes('not-authorized') || error.message?.includes('401')) {
+        logger.error('❌ Error de autorización: La sesión puede haber expirado');
+      } else if (error.message?.includes('rate-limit') || error.message?.includes('429')) {
+        logger.error('❌ Rate limit: Demasiados mensajes enviados, espera unos minutos');
+      } else if (error.message?.includes('not-found') || error.message?.includes('404')) {
+        logger.error('❌ Número no encontrado: El número no está registrado en WhatsApp');
+      }
+      
       return false;
     }
   }

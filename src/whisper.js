@@ -14,11 +14,10 @@ class WhisperTranscriber {
    */
   async ensureReady() {
     try {
-      logger.info('🧩 Preparando modelo de Whisper...');
+      // Silenciar logs de Whisper - solo inicializar sin mostrar mensajes
       await this._warmupModel();
-      logger.success('✅ Modelo de Whisper listo');
     } catch (error) {
-      logger.warn('⚠️ Warmup de Whisper no completado, se intentará al vuelo', { error: error.message });
+      // Silenciar errores de warmup - se intentará al vuelo si es necesario
     }
   }
 
@@ -222,7 +221,7 @@ class WhisperTranscriber {
         SSL_CERT_FILE: '',
         REQUESTS_CA_BUNDLE: ''
       };
-      logger.debug('Warmup Whisper', { args });
+      // Log silenciado
       const p = spawn(config.whisper.pythonPath, args, { env });
       let stderr = '';
       p.stderr.on('data', d => { stderr += d.toString(); });
