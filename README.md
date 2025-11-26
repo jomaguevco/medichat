@@ -1,21 +1,23 @@
-# 🤖 ChatDex - Chatbot WhatsApp con Voz para Sistema KARDEX
+# 🏥 MediChat - Bot de Notificaciones Médicas por WhatsApp
 
-Bot de WhatsApp completamente **gratuito** con reconocimiento de voz que se integra con el sistema de ventas KARDEX. Los clientes pueden enviar mensajes de texto o notas de voz para hacer pedidos automáticamente.
+Bot de WhatsApp para el **Sistema de Gestión de Stock Médico RFID** que permite enviar notificaciones, alertas y recetas médicas directamente a pacientes y personal de salud.
+
+---
 
 ## ✨ Características
 
-- 📱 **WhatsApp nativo** - Conexión directa sin APIs de pago (Venom-Bot)
-- 🎤 **Reconocimiento de voz** - Transcripción local con Whisper (español peruano)
-- 🤖 **IA integrada** - Búsqueda semántica y fuzzy matching de productos
-- 💡 **Sugerencias inteligentes** - Propone productos similares si no encuentra exacto
-- 🛒 **Integración completa** con sistema KARDEX existente
-- 💰 **Notificaciones automáticas** - Notifica a vendedores/administradores
-- 🔄 **Gestión de pedidos** en tiempo real con confirmación
+- 📱 **WhatsApp nativo** - Conexión directa sin APIs de pago
+- 🎤 **Reconocimiento de voz** - Transcripción local con Whisper (español)
+- 📋 **Envío de recetas** - Envía recetas médicas con código QR al paciente
+- 🚨 **Alertas de stock** - Notifica sobre productos con stock bajo o vencidos
+- 🔔 **Notificaciones automáticas** - Alertas a farmacéuticos y administradores
 - 💾 **Base de datos local** (SQLite) para sesiones
-- 📊 **Manejo inteligente** de cantidades, unidades y direcciones peruanas
+- 🔗 **Integración completa** con Sistema RFID de Stock Médico
 - 🆓 **100% gratuito** - Sin costos de APIs externas
 
-## 📋 Requisitos previos
+---
+
+## 📋 Requisitos Previos
 
 ### 1. Node.js
 ```bash
@@ -23,7 +25,7 @@ Bot de WhatsApp completamente **gratuito** con reconocimiento de voz que se inte
 node --version  # debe mostrar v18.x.x o superior
 ```
 
-### 2. Python (para Whisper)
+### 2. Python (para Whisper - opcional, solo para voz)
 ```bash
 # Instalar Python 3.8 o superior
 python3 --version
@@ -47,196 +49,175 @@ sudo apt update && sudo apt install ffmpeg
 # Descargar desde: https://ffmpeg.org/download.html
 ```
 
+---
+
 ## 🚀 Instalación
 
-### 1. Clonar o descargar el proyecto
+### 1. Instalar dependencias
 ```bash
-cd chatdex.com
-```
-
-### 2. Instalar dependencias
-```bash
+cd medichat
 npm install
 ```
 
-### 3. Configurar variables de entorno
+### 2. Configurar variables de entorno
 ```bash
 # Copiar el archivo de ejemplo
 cp .env.example .env
 
 # Editar .env con tus datos
-nano .env
 ```
 
-**Configuración importante en `.env`:**
+**Configuración en `.env`:**
 ```env
 # Configuración del servidor
 PORT=3001
 NODE_ENV=development
 
-# KARDEX API
-KARDEX_API_URL=http://localhost:4001/api
-KARDEX_AUTH_TOKEN=tu_token_de_autenticacion_aqui
-CHATBOT_API_TOKEN=tu_token_para_notificaciones_chatbot
+# API del Sistema RFID
+RFID_API_URL=http://localhost:3000/api
+RFID_AUTH_TOKEN=tu_token_de_autenticacion
 
-# Whisper (Transcripción de voz)
+# Whisper (Transcripción de voz - opcional)
 WHISPER_MODEL=base
 WHISPER_LANGUAGE=es
 WHISPER_PYTHON_PATH=python3
 
-# Configuración de pagos
-YAPE_NUMBER=987654321
-YAPE_NAME=Tu Negocio
-PLIN_NUMBER=987654321
-
 # Configuración del bot
-WELCOME_MESSAGE=¡Hola! 👋 Soy el asistente virtual. ¿En qué puedo ayudarte?
-CONFIRMATION_TIMEOUT=10
+WELCOME_MESSAGE=¡Hola! Soy el asistente del Sistema Médico RFID.
 TIMEZONE=America/Lima
 ```
 
-### 4. Iniciar el bot
+### 3. Iniciar el bot
 ```bash
 npm start
+# o
+node src/app.js
 ```
 
 En el primer inicio:
-1. Se abrirá una ventana del navegador con un **QR code**
+1. Se generará un **código QR** en la consola y en `qr/qr.png`
 2. Escanea el QR con WhatsApp (Dispositivos vinculados)
 3. El bot se conectará automáticamente
-4. ¡Listo! Ya puedes recibir pedidos por WhatsApp
+4. ¡Listo! El sistema puede enviar notificaciones por WhatsApp
 
-## 🔧 Integración con KARDEX
+---
 
-El bot se conecta automáticamente a estos endpoints de tu sistema:
+## 🔧 Integración con Sistema RFID
+
+El bot se integra con el backend del Sistema RFID para:
+
+| Funcionalidad | Descripción |
+|---------------|-------------|
+| **Envío de recetas** | Envía la receta médica con QR al teléfono del paciente |
+| **Alertas de stock** | Notifica a farmacéuticos sobre stock bajo o vencido |
+| **Notificaciones** | Envía alertas críticas al personal de salud |
+
+### Endpoints utilizados
 
 | Endpoint | Método | Uso |
 |----------|--------|-----|
-| `/productos` | GET | Obtener catálogo de productos (con búsqueda semántica) |
-| `/productos/:id` | GET | Detalles de un producto |
-| `/notificaciones/whatsapp` | POST | Notificar pedidos a vendedores/administradores |
+| `/prescriptions/:id` | GET | Obtener datos de una receta |
+| `/alerts` | GET | Consultar alertas activas |
+| `/products` | GET | Verificar stock de productos |
 
-**Nota:** El chatbot no crea pedidos directamente, solo notifica a vendedores/administradores para que procesen el pedido manualmente desde el sistema KARDEX.
+---
 
-## 💬 Ejemplos de uso
+## 💬 Funcionalidades del Bot
 
-### Pedido por texto
-```
-Cliente: Hola, quiero 2 panes integrales y 1 yogurt de litro
-
-Bot:
-📦 Resumen de tu pedido:
-• 2× Pan Integral - S/ 7.50 c/u
-• 1× Yogurt Natural 1L - S/ 9.50
-
-💵 Total: S/ 24.50
-
-¿Confirmas el pedido? Responde "CONFIRMO" para continuar.
-```
-
-### Pedido por voz
-```
-Cliente: (nota de voz) "Necesito tres pollos a la brasa para el sábado"
-
-Bot:
-🎤 Escuché: "necesito tres pollos a la brasa para el sabado"
-
-📦 Resumen de tu pedido:
-• 3× Pollo a la Brasa - S/ 45.00 c/u
-
-💵 Total: S/ 135.00
-📅 Entrega: Sábado
-
-¿Confirmas? Responde "CONFIRMO"
-```
-
-### Confirmación y pago
-```
-Cliente: CONFIRMO
-
-Bot:
-✅ Pedido confirmado! 🎉
-
-Para completar tu pedido, realiza el pago:
-💳 Yape/Plin: 987654321
-👤 A nombre de: Mi Negocio
-
-[Envía QR de pago]
-
-Cuando hagas el pago, envía una captura o escribe "PAGADO"
-```
-
-## 📁 Estructura del proyecto
+### Envío de Recetas Médicas
+Cuando se crea una receta en el Sistema RFID, el bot puede enviarla automáticamente al paciente:
 
 ```
-/chatdex.com/
+📋 RECETA MÉDICA
+━━━━━━━━━━━━━━━━━━
+
+👤 Paciente: Juan Pérez
+🏥 Código: RX-2024-00123
+📅 Fecha: 26/11/2024
+
+💊 Medicamentos:
+• Paracetamol 500mg - 20 unidades
+  Tomar 1 cada 8 horas
+
+• Amoxicilina 500mg - 21 cápsulas
+  Tomar 1 cada 8 horas por 7 días
+
+👨‍⚕️ Dr. Carlos García
+Colegiatura: CMP-12345
+
+[Imagen del código QR para despacho]
+```
+
+### Alertas de Stock
+```
+🚨 ALERTA DE STOCK
+
+⚠️ Productos con stock bajo:
+• Paracetamol 500mg: 15 unidades (mínimo: 50)
+• Ibuprofeno 400mg: 8 unidades (mínimo: 30)
+
+⏰ Productos próximos a vencer:
+• Amoxicilina Lote L-2024-001: vence en 7 días
+```
+
+### Comandos Disponibles
+
+Los usuarios autorizados pueden usar:
+
+- `ESTADO` - Ver estado del sistema
+- `ALERTAS` - Ver alertas activas
+- `AYUDA` - Mostrar comandos disponibles
+
+---
+
+## 📁 Estructura del Proyecto
+
+```
+medichat/
 ├── src/
 │   ├── app.js                 # Servidor principal Express
-│   ├── whatsapp.js            # Lógica de Venom-Bot
-│   ├── whisper.js             # Transcripción de voz con Whisper
-│   ├── nlu.js                 # Procesamiento de lenguaje natural con IA
-│   ├── orderHandler.js        # Manejo completo de pedidos y confirmación
-│   ├── db.js                  # Base de datos SQLite
-│   ├── kardexApi.js           # Cliente HTTP para KARDEX con retry logic
-│   ├── sessionManager.js      # Gestión de sesiones de chat
+│   ├── whatsapp.js            # Lógica de conexión WhatsApp
+│   ├── whisper.js             # Transcripción de voz (opcional)
+│   ├── rfidApi.js             # Cliente HTTP para Sistema RFID
+│   ├── sessionManager.js      # Gestión de sesiones
 │   └── utils/
 │       ├── audioConverter.js  # Conversión de audio
-│       ├── textParser.js      # Extracción de productos/cantidades
 │       └── logger.js          # Registro de eventos
 ├── config/
 │   └── config.js              # Configuración general
 ├── qr/
-│   └── yape-plin.png          # QR estático de pago
+│   └── qr.png                 # Código QR de WhatsApp (auto-generado)
 ├── data/
-│   └── chatbot.db             # Base de datos SQLite (auto-generada)
+│   └── medichat.db            # Base de datos SQLite (auto-generada)
 ├── temp/                      # Archivos temporales de audio
+├── tokens/                    # Sesión de WhatsApp
 ├── package.json
 ├── .env.example
 ├── .env
 └── README.md
 ```
 
-## 🔄 Flujo completo del bot
+---
 
-1. **Recepción** - Usuario envía mensaje/voz por WhatsApp
-2. **Transcripción** - Si es voz, Whisper convierte a texto
-3. **Análisis IA** - NLU detecta intención y extrae productos/cantidades con búsqueda semántica
-4. **Búsqueda inteligente** - Busca productos con fuzzy matching y sugiere alternativas
-5. **Verificación** - Llama a KARDEX para validar stock y precios
-6. **Resumen** - Envía resumen del pedido formateado al cliente
-7. **Confirmación** - Espera que el cliente confirme
-8. **Notificación** - Notifica a vendedores/administradores cuando se confirma
-9. **Pago** - Muestra información de pago y espera confirmación
-10. **Seguimiento** - Permite consultar estado del pedido
+## 🔄 Flujo de Notificaciones
 
-## 🛠️ Comandos del bot
+1. **Evento en Sistema RFID** - Se crea receta, alerta de stock, etc.
+2. **Webhook a MediChat** - El backend RFID notifica al bot
+3. **Procesamiento** - El bot formatea el mensaje
+4. **Envío por WhatsApp** - Se envía al destinatario correspondiente
+5. **Confirmación** - Se registra el envío exitoso
 
-Los usuarios pueden usar estos comandos:
-
-- `HOLA` / `INICIO` - Mensaje de bienvenida
-- `PRODUCTOS` / `CATALOGO` - Ver productos disponibles
-- `CONFIRMO` - Confirmar pedido
-- `CANCELAR` - Cancelar pedido actual
-- `PAGADO` - Confirmar que se realizó el pago
-- `AYUDA` - Mostrar ayuda
-- `ESTADO` - Ver estado del último pedido
+---
 
 ## 🔐 Seguridad
 
-- ✅ Token de autenticación para llamadas a KARDEX
-- ✅ Validación de números de WhatsApp permitidos (opcional)
-- ✅ Timeout de sesiones (10 minutos por defecto)
-- ✅ Logs de todas las transacciones
-- ✅ No se almacenan datos sensibles de pago
+- ✅ Token de autenticación para API del Sistema RFID
+- ✅ Validación de números de WhatsApp autorizados
+- ✅ Logs de todas las notificaciones enviadas
+- ✅ Datos sensibles no se almacenan permanentemente
+- ✅ Sesión de WhatsApp encriptada localmente
 
-## 📊 Base de datos local
-
-El bot usa SQLite para almacenar:
-
-- **Sesiones de chat** - Estado de cada conversación
-- **Pedidos pendientes** - Pedidos en proceso de confirmación
-- **Historial** - Registro de interacciones
-- **Métricas** - Estadísticas de uso
+---
 
 ## 🐛 Troubleshooting
 
@@ -249,7 +230,7 @@ rm -rf tokens/
 npm start
 ```
 
-### Error con Whisper
+### Error con Whisper (si usas voz)
 ```bash
 # Verificar instalación
 whisper --help
@@ -258,13 +239,12 @@ whisper --help
 pip3 install --upgrade openai-whisper
 ```
 
-### Error de conexión con KARDEX
+### Error de conexión con Sistema RFID
 ```bash
 # Verificar que el backend esté corriendo
 curl http://localhost:3000/api/health
 
 # Verificar token en .env
-echo $KARDEX_AUTH_TOKEN
 ```
 
 ### Audio no se transcribe
@@ -276,63 +256,49 @@ ffmpeg -version
 chmod 755 temp/
 ```
 
-## 🚀 Despliegue en producción
+---
 
-### Opción 1: Servidor local (24/7)
+## 🚀 Despliegue
+
+### Con PM2 (Recomendado)
 ```bash
-# Instalar PM2 para mantener el bot corriendo
+# Instalar PM2
 npm install -g pm2
 
 # Iniciar con PM2
-pm2 start src/app.js --name chatdex
+pm2 start src/app.js --name medichat
 
 # Ver logs
-pm2 logs chatdex
+pm2 logs medichat
 
 # Reiniciar
-pm2 restart chatdex
+pm2 restart medichat
+
+# Iniciar automáticamente con el sistema
+pm2 startup
+pm2 save
 ```
 
-### Opción 2: Railway (gratuito)
-1. Subir el código a GitHub
-2. Conectar con Railway
-3. Configurar variables de entorno
-4. Desplegar automáticamente
+### Con el script de inicio del Sistema RFID
+El bot se inicia automáticamente al ejecutar:
+- **Windows:** `iniciar.bat`
+- **macOS/Linux:** `iniciar_todo.sh`
 
-**Nota:** Venom-Bot requiere mantener la sesión de WhatsApp activa, funciona mejor en servidor dedicado.
-
-## 📝 Próximas mejoras
-
-- [ ] Panel web de administración
-- [ ] Múltiples métodos de pago
-- [ ] Integración con delivery (Google Maps)
-- [ ] Reportes automáticos diarios
-- [ ] Soporte para múltiples idiomas
-- [ ] Webhooks para notificaciones
-- [ ] Chatbot con IA (GPT) para respuestas más naturales
-
-## 🤝 Contribuir
-
-Las contribuciones son bienvenidas. Por favor:
-
-1. Fork el proyecto
-2. Crea una rama para tu feature (`git checkout -b feature/nueva-funcionalidad`)
-3. Commit tus cambios (`git commit -m 'Agregar nueva funcionalidad'`)
-4. Push a la rama (`git push origin feature/nueva-funcionalidad`)
-5. Abre un Pull Request
-
-## 📄 Licencia
-
-MIT License - Úsalo libremente en tus proyectos.
+---
 
 ## 📧 Soporte
 
 Si tienes problemas o preguntas:
 - Revisa la sección de Troubleshooting
-- Abre un issue en GitHub
-- Contacta al desarrollador
+- Verifica los logs del sistema
+- Contacta al administrador del sistema
 
 ---
 
-**Desarrollado con ❤️ para integración con Sistema KARDEX**
+## 📄 Licencia
 
+MIT License - Parte del Sistema de Gestión de Stock Médico RFID
+
+---
+
+**Desarrollado con ❤️ para instituciones de salud**
