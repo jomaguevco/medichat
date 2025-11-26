@@ -40,3 +40,6 @@ Thumbs.db
 # QR codes generated
 qr/generated/
 
+
+# QR Code (temporary)
+qr/
